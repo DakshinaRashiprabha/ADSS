@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ampara_dss_db
+    environment:
+      POSTGRES_USER: dss_user
+      POSTGRES_PASSWORD: dss_password
+      POSTGRES_DB: ampara_dss
+    ports:
+      - "5434:5432"
+    volumes:
+      - dss_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dss_user -d ampara_dss"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  dss_pgdata:
