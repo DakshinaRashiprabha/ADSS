@@ -11,8 +11,9 @@ export default function Decisions() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
+    if (level) return
     api.decisions().then(setData).catch((e) => setError(e.message))
-  }, [])
+  }, [level])
 
   useEffect(() => {
     if (!level) {
@@ -23,15 +24,20 @@ export default function Decisions() {
   }, [level])
 
   if (error) return <div className="error-box">{error}</div>
-  if (!data || (level && !group)) return <div className="loading">Computing decisions…</div>
+
+  // Group view: only this group's decisions — the overall analysis lives on the home page.
+  if (level) {
+    if (!group) return <div className="loading">Computing decisions…</div>
+    return <GroupDecisions group={group} />
+  }
+
+  if (!data) return <div className="loading">Computing decisions…</div>
 
   const { summary, key_findings, score_gaps, model, recommendations } = data
 
   return (
     <>
-      {group && <GroupDecisions group={group} />}
-
-      <h2 className="section-title">{group ? 'Overall decisions (all groups)' : 'Decisions & Insights'}</h2>
+      <h2 className="section-title">Decisions & Insights</h2>
       <p className="section-sub">
         Evidence-based findings and recommendations generated from the survey data and the trained model.
       </p>

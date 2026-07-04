@@ -34,22 +34,39 @@ Google Form ──> Google Sheet ──> Ingestion service (automation + triling
 
 ## Features
 
-- **Home page** — six educational-qualification tabs (Below O/L → Postgraduate); clicking
-  a tab loads the full **14-point analysis** for that group in the required order:
-  percentage, gender, English proficiency, parents' education, study environment,
-  household income, learning device, internet quality, study hours, software literacy,
-  library accessibility, external resources, extracurricular engagement, performance score.
-- **Decisions page** — Gini coefficient of scores, performance-gap analysis per
-  socio-economic factor, ML feature importances, and prioritized recommendations.
+- **Home page** — six educational-qualification group cards (Below O/L → Postgraduate),
+  followed by the overall district-wide analysis: **performance gaps by factor** and
+  prioritized **recommendations** across all groups.
+- **Group pages** — each qualification group opens on its own page (`/group?level=…`)
+  with the full **14-point analysis** in the required order: percentage, gender, English
+  proficiency, parents' education, study environment, household income, learning device,
+  internet quality, study hours, software literacy, library accessibility, external
+  resources, extracurricular engagement, performance score — plus a link to that group's
+  decisions.
+- **Group decisions page** — group-specific only (`/decisions?level=…`): group average
+  vs overall, top barriers, key findings, and recommendations for that group. The full
+  overall view (Gini coefficient, key findings, ML feature importances) remains at
+  `/decisions`.
 - **Needs page** — resource-gap profile for every qualification group.
 - **District map** — interactive Sri Lanka choropleth (geoBoundaries ADM2, ODbL) of survey
   coverage with the Ampara focus district highlighted; click any district for its profile.
-- **Try Questions** — take the same 5 aptitude questions as respondents; scored live
-  against the dataset with a percentile.
-- **Admin dashboard** — dataset health, score/education/district distributions, model
-  metrics, ingestion history, "Sync data now" and "Retrain model" actions.
-- **Automated pipeline** — re-ingestion is deduplicated (content hashing); an optional
-  published-Google-Sheet URL enables scheduled automatic syncs (see `backend/.env`).
+- **Comments & support requests** — the message icon in the navbar opens a public form
+  (name, contact number, address, requirement description, optional proof document —
+  image/PDF/any file up to 10 MB). Submissions land in the admin dashboard's "Support
+  requests" section for review; once approved they are displayed publicly on the same
+  page under **"Support required"**.
+- **Admin dashboard** — opened via the gear icon in the navbar and protected by a login
+  (credentials in `backend/.env`: `ADMIN_USERNAME` / `ADMIN_PASSWORD`, default
+  `admin` / `admin123`). Two tabs: **Analytics** (default — dataset health,
+  score/education/district distributions, model metrics, ingestion history, "Sync data
+  now" and "Retrain model") and **Support** (review submitted support requests — click a
+  request for full details and approve / reject it).
+- **Navbar** — Needs, District Map, and the admin gear icon; the tab for the current
+  page is highlighted.
+- **Live data pipeline** — survey responses are pulled directly from the Google Form's
+  response sheet (any Sheets link works, see `backend/.env`); the backend re-syncs every
+  15 minutes, deduplicates rows (content hashing), and retrains the model automatically
+  when new responses arrive.
 
 ## Requirements
 
@@ -59,9 +76,10 @@ Google Form ──> Google Sheet ──> Ingestion service (automation + triling
 | [Python](https://www.python.org/downloads/) | 3.11+ | FastAPI backend + ML model |
 | [Node.js](https://nodejs.org/) | 18+ | React/Vite frontend |
 
-The survey dataset `An_Automated_Decision_Support_System_For_Analyzing_And_Optimizing.csv`
-must be present in the project root (it is included in this repository) — the backend
-seeds the database from it on first start.
+On first start the backend seeds the database from the live Google Sheet configured in
+`backend/.env`. The CSV file in the project root
+(`An_Automated_Decision_Support_System_For_Analyzing_And_Optimizing.csv`) is an earlier
+pilot sample kept only as a fallback data source when no sheet is configured.
 
 ## Setup (first time)
 
@@ -85,10 +103,14 @@ looks for the database on the wrong port):
 ```ini
 DATABASE_URL=postgresql+psycopg2://dss_user:dss_password@localhost:5434/ampara_dss
 CSV_PATH=../An_Automated_Decision_Support_System_For_Analyzing_And_Optimizing.csv
-# Optional: published Google Sheet CSV URL for live sync (File > Share > Publish to web > CSV)
-GOOGLE_SHEET_CSV_URL=
+# Google Sheet for live sync — any Sheets link works (share link, publish-to-web, or direct CSV).
+# The sheet must be shared as 'Anyone with the link: Viewer'.
+GOOGLE_SHEET_CSV_URL=https://docs.google.com/spreadsheets/d/1nwq7iL_2LQdfWmzDz_vKMkj2nR0ra2ChAqcoEQcfcYs/edit?usp=sharing
 # Minutes between automatic Google Sheet syncs (0 = disabled)
-SYNC_INTERVAL_MINUTES=0
+SYNC_INTERVAL_MINUTES=15
+# Admin dashboard credentials
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=admin123
 ```
 
 **3. Install backend dependencies**
@@ -130,16 +152,22 @@ cd frontend; npm run dev                                                 # termi
 Then open **http://localhost:5173**.
 
 On first start the backend automatically creates the database schema, seeds it from the
-survey CSV, and trains the Random Forest model — no manual migration or import step.
+live Google Sheet (falling back to the bundled CSV if no sheet is configured), and
+trains the Random Forest model — no manual migration or import step.
 API docs (Swagger): **http://localhost:8000/docs** · Health check: `GET /api/health`
 
-### Live Google Sheet sync (optional)
+### Live Google Sheet sync
 
-In Google Sheets: File → Share → Publish to web → select the responses sheet → CSV.
-Put that URL in `backend/.env` as `GOOGLE_SHEET_CSV_URL` and set
-`SYNC_INTERVAL_MINUTES=15`. The backend then pulls new form responses automatically,
-deduplicates them (content hashing), and retrains the model when new data arrives.
+The system is configured (in `backend/.env`) to pull survey responses live from the
+Google Form's response sheet. Any Google Sheets link works as `GOOGLE_SHEET_CSV_URL` —
+a regular share link, a publish-to-web link, or a direct CSV export link — as long as
+the sheet is shared as **"Anyone with the link: Viewer"**. With
+`SYNC_INTERVAL_MINUTES=15`, the backend re-pulls the sheet every 15 minutes,
+deduplicates rows (content hashing), and retrains the model when new responses arrive.
 You can also trigger a sync manually from the Admin dashboard ("Sync data now").
+
+On first start (empty database) the backend seeds directly from the Google Sheet;
+the bundled CSV in the project root is only a fallback when no sheet is configured.
 
 ### Troubleshooting
 
@@ -151,7 +179,10 @@ You can also trigger a sync manually from the Admin dashboard ("Sync data now").
   free; stop whatever holds them or change the port in `docker-compose.yml` / the
   uvicorn command / `frontend/vite.config.js`.
 - **Not enough labeled data to train** — the model needs 20+ scored responses; make
-  sure the CSV seeded correctly (check the Admin dashboard's dataset health panel).
+  sure the Google Sheet seeded correctly (check the Admin dashboard's Analytics tab).
+- **Google Sheet sync fails** — confirm the sheet is shared as "Anyone with the link:
+  Viewer"; the backend logs a clear error if the sheet returns a login page instead
+  of CSV.
 
 ### Stopping
 
@@ -161,12 +192,18 @@ docker compose down          # stop the database (data is kept)
 docker compose down -v       # stop AND delete all database data (re-seeds on next start)
 ```
 
-## Key results on the current dataset (n = 102)
+## Key results
 
-- Average aptitude score rises monotonically with education level: 2.38/5 (O/L) →
-  3.43/5 (Bachelor's).
-- Largest inequality gaps: extracurricular participation (1.05 pts), study hours,
-  parents' education, and household income.
-- Random Forest cross-validated accuracy 76% vs a 70% majority baseline; top
-  predictors: software literacy, age, household income.
-- Score Gini coefficient: 0.241.
+The dataset is live — the numbers below are a snapshot (2026-07-04, n = 563) and
+update automatically as new form responses arrive.
+
+- Average aptitude score rises with education level: 0.90/5 (Below O/L) →
+  2.40/5 (A/L and above).
+- Largest inequality gaps: daily online study hours (3.0 pts), household income
+  (1.9 pts), library distance (1.7 pts), and extracurricular participation (1.5 pts).
+- Random Forest cross-validated accuracy 86%; top predictors: education level,
+  software literacy, English proficiency. (High performers are rare in the live
+  data — ~13% — so the majority baseline is also high; treat feature importances,
+  not raw accuracy, as the model's main output.)
+- Score Gini coefficient: 0.471 — substantially higher inequality than in the
+  earlier pilot sample.

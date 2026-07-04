@@ -6,17 +6,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from . import analysis, decisions, ingest, ml, quiz
-from .config import CSV_PATH, GOOGLE_SHEET_CSV_URL, SYNC_INTERVAL_MINUTES
+from . import analysis, decisions, ingest, ml
+from .config import ADMIN_PASSWORD, ADMIN_USERNAME, CSV_PATH, GOOGLE_SHEET_CSV_URL, SYNC_INTERVAL_MINUTES
 from .database import Base, SessionLocal, engine, get_db
-from .models import IngestLog, SurveyResponse
+from .models import IngestLog, SupportRequest, SurveyResponse
 from .normalization import EDUCATION_LEVELS
 
 logging.basicConfig(level=logging.INFO)
@@ -41,9 +43,20 @@ def startup() -> None:
     Base.metadata.create_all(engine)
     db = SessionLocal()
     try:
-        if db.query(func.count(SurveyResponse.id)).scalar() == 0 and CSV_PATH.exists():
-            log = ingest.ingest_csv_file(db, CSV_PATH)
-            logger.info("Seeded database: %s", log.detail)
+        if db.query(func.count(SurveyResponse.id)).scalar() == 0:
+            # Prefer the live Google Sheet; fall back to the bundled CSV.
+            if GOOGLE_SHEET_CSV_URL:
+                try:
+                    log = ingest.ingest_google_sheet(db, GOOGLE_SHEET_CSV_URL)
+                    logger.info("Seeded database from Google Sheet: %s", log.detail)
+                except Exception:
+                    logger.exception("Google Sheet seed failed — falling back to local CSV")
+                    if CSV_PATH.exists():
+                        log = ingest.ingest_csv_file(db, CSV_PATH)
+                        logger.info("Seeded database from CSV: %s", log.detail)
+            elif CSV_PATH.exists():
+                log = ingest.ingest_csv_file(db, CSV_PATH)
+                logger.info("Seeded database from CSV: %s", log.detail)
         try:
             ml.train_model(db)
         except ValueError as e:
@@ -126,25 +139,126 @@ def districts(db: Session = Depends(get_db)):
     )
 
 
-# --- Try Questions -----------------------------------------------------------
+# --- Support requests (public Comments tab) ----------------------------------
 
-class QuizSubmission(BaseModel):
-    answers: dict[str, str]
-
-
-@app.get("/api/quiz/questions")
-def quiz_questions():
-    return quiz.public_questions()
+MAX_DOCUMENT_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
-@app.post("/api/quiz/submit")
-def quiz_submit(submission: QuizSubmission, db: Session = Depends(get_db)):
-    return quiz.grade(db, submission.answers)
+def _support_public(r: SupportRequest) -> dict:
+    return {
+        "id": r.id,
+        "created_at": r.created_at.isoformat(),
+        "name": r.name,
+        "contact_no": r.contact_no,
+        "address": r.address,
+        "description": r.description,
+        "has_document": r.document_name is not None,
+        "document_name": r.document_name,
+    }
+
+
+@app.post("/api/support")
+async def submit_support_request(
+    name: str = Form(...),
+    contact_no: str = Form(...),
+    address: str = Form(...),
+    description: str = Form(...),
+    document: UploadFile | None = File(None),
+    db: Session = Depends(get_db),
+):
+    req = SupportRequest(
+        name=name.strip(),
+        contact_no=contact_no.strip(),
+        address=address.strip(),
+        description=description.strip(),
+    )
+    if not (req.name and req.contact_no and req.address and req.description):
+        raise HTTPException(400, "Name, contact number, address, and requirement description are all required")
+    if document is not None and document.filename:
+        data = await document.read()
+        if len(data) > MAX_DOCUMENT_BYTES:
+            raise HTTPException(400, "Document too large (max 10 MB)")
+        req.document_name = document.filename
+        req.document_type = document.content_type or "application/octet-stream"
+        req.document_data = data
+    db.add(req)
+    db.commit()
+    return {"id": req.id, "status": req.status}
+
+
+@app.get("/api/support/approved")
+def approved_support_requests(db: Session = Depends(get_db)):
+    rows = (
+        db.query(SupportRequest)
+        .filter(SupportRequest.status == "approved")
+        .order_by(SupportRequest.created_at.desc())
+        .all()
+    )
+    return [_support_public(r) for r in rows]
+
+
+@app.get("/api/support/{req_id}/document")
+def support_document(req_id: int, db: Session = Depends(get_db)):
+    r = db.get(SupportRequest, req_id)
+    if r is None or r.document_data is None:
+        raise HTTPException(404, "Document not found")
+    return Response(
+        content=r.document_data,
+        media_type=r.document_type or "application/octet-stream",
+        headers={"Content-Disposition": f'inline; filename="{r.document_name}"'},
+    )
 
 
 # --- Admin -------------------------------------------------------------------
 
-@app.get("/api/admin/summary")
+# Session tokens issued by /api/admin/login; valid until the server restarts.
+_admin_tokens: set[str] = set()
+
+
+def require_admin(authorization: str | None = Header(None)) -> None:
+    token = authorization.removeprefix("Bearer ").strip() if authorization else ""
+    if not token or token not in _admin_tokens:
+        raise HTTPException(401, "Admin authentication required")
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/admin/login")
+def admin_login(req: LoginRequest):
+    user_ok = secrets.compare_digest(req.username.encode(), ADMIN_USERNAME.encode())
+    pass_ok = secrets.compare_digest(req.password.encode(), ADMIN_PASSWORD.encode())
+    if not (user_ok and pass_ok):
+        raise HTTPException(401, "Invalid username or password")
+    token = secrets.token_hex(32)
+    _admin_tokens.add(token)
+    return {"token": token}
+
+
+@app.get("/api/admin/support", dependencies=[Depends(require_admin)])
+def admin_support_requests(db: Session = Depends(get_db)):
+    rows = db.query(SupportRequest).order_by(SupportRequest.created_at.desc()).all()
+    return [{**_support_public(r), "status": r.status} for r in rows]
+
+
+class SupportStatusUpdate(BaseModel):
+    status: str
+
+
+@app.post("/api/admin/support/{req_id}/status", dependencies=[Depends(require_admin)])
+def admin_update_support_status(req_id: int, update: SupportStatusUpdate, db: Session = Depends(get_db)):
+    if update.status not in ("pending", "approved", "rejected"):
+        raise HTTPException(400, "Status must be one of: pending, approved, rejected")
+    r = db.get(SupportRequest, req_id)
+    if r is None:
+        raise HTTPException(404, "Support request not found")
+    r.status = update.status
+    db.commit()
+    return {"id": r.id, "status": r.status}
+
+@app.get("/api/admin/summary", dependencies=[Depends(require_admin)])
 def admin_summary(db: Session = Depends(get_db)):
     logs = db.query(IngestLog).order_by(IngestLog.ran_at.desc()).limit(10).all()
     try:
@@ -171,7 +285,7 @@ def admin_summary(db: Session = Depends(get_db)):
     }
 
 
-@app.post("/api/admin/ingest")
+@app.post("/api/admin/ingest", dependencies=[Depends(require_admin)])
 def admin_ingest(db: Session = Depends(get_db)):
     """Re-run ingestion: Google Sheet if configured, otherwise the local CSV."""
     if GOOGLE_SHEET_CSV_URL:
@@ -185,7 +299,7 @@ def admin_ingest(db: Session = Depends(get_db)):
     return {"source": log.source, "rows_seen": log.rows_seen, "rows_inserted": log.rows_inserted, "rows_skipped": log.rows_skipped}
 
 
-@app.post("/api/admin/retrain")
+@app.post("/api/admin/retrain", dependencies=[Depends(require_admin)])
 def admin_retrain(db: Session = Depends(get_db)):
     try:
         ml.train_model(db)

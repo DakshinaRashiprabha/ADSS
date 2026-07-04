@@ -125,6 +125,9 @@ body {
 .nav-btn:hover { background: var(--accent-wash); }
 .nav-btn.primary { background: var(--series-1); border-color: transparent; color: #fff; }
 .nav-btn.primary:hover { opacity: 0.9; }
+.nav-btn.active { background: var(--series-1); border-color: transparent; color: #fff; }
+.nav-btn.active:hover { background: var(--series-1); opacity: 0.9; }
+.nav-btn.icon-btn { display: inline-flex; align-items: center; padding: 8px 10px; }
 .theme-toggle { padding: 8px 10px; font-size: 15px; line-height: 1; }
 
 /* --- Animated hero --- */
@@ -205,6 +208,8 @@ body {
 .qual-card {
   --qc: var(--series-1); /* per-level signature color, set inline */
   position: relative;
+  display: block;
+  text-decoration: none;
   text-align: left;
   background: var(--surface-1);
   border: 1px solid var(--border);
@@ -343,15 +348,6 @@ table.data th { text-align: left; color: var(--text-muted); font-weight: 500; pa
 table.data td { padding: 6px 10px; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
 table.data tr:last-child td { border-bottom: none; }
 
-/* --- Quiz --- */
-.quiz-q { margin-bottom: 22px; }
-.quiz-q h4 { font-size: 15px; margin-bottom: 10px; }
-.quiz-option { display: block; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; cursor: pointer; font-size: 14px; background: var(--surface-1); }
-.quiz-option:hover { background: var(--accent-wash); }
-.quiz-option.selected { border-color: var(--series-1); background: var(--accent-wash); }
-.quiz-option.correct { border-color: var(--good); }
-.quiz-option.wrong { border-color: var(--critical); }
-
 /* --- Pie / donut --- */
 .pie-wrap { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
 .pie-legend { display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
@@ -401,6 +397,44 @@ table.data tr:last-child td { border-bottom: none; }
 .section-sub { color: var(--text-secondary); font-size: 14px; margin-bottom: 12px; }
 .decisions-cta { display: flex; justify-content: center; margin-top: 36px; }
 .decisions-cta .nav-btn { font-size: 16px; padding: 12px 32px; }
+/* --- Admin login --- */
+.login-wrap { display: flex; justify-content: center; padding: 48px 0; }
+.login-card { width: 100%; max-width: 400px; }
+.login-card .support-form { max-width: none; }
+.row-click { cursor: pointer; }
+.row-click:hover td { background: var(--accent-wash); }
+
+/* --- Support / Comments --- */
+.support-form { display: grid; gap: 14px; max-width: 620px; margin-top: 12px; }
+.support-form label { display: grid; gap: 6px; font-size: 13px; color: var(--text-secondary); }
+.support-form input,
+.support-form textarea {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  width: 100%;
+}
+.support-form input:focus,
+.support-form textarea:focus { outline: 2px solid var(--series-1); outline-offset: -1px; }
+.support-form textarea { resize: vertical; }
+.support-form input[type='file'] { border: 1px dashed var(--border); cursor: pointer; }
+.status-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  text-transform: capitalize;
+  border: 1px solid var(--border);
+}
+.status-badge.approved { color: #fff; background: var(--series-1); border-color: transparent; }
+.status-badge.rejected { color: var(--critical); border-color: var(--critical); }
+.support-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.support-meta { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: var(--text-secondary); margin: 8px 0; }
+.support-actions .nav-btn { padding: 4px 10px; font-size: 12px; }
+
 .loading { color: var(--text-muted); padding: 32px 0; text-align: center; }
 .error-box { color: var(--critical); padding: 16px; border: 1px solid var(--critical); border-radius: 8px; margin: 16px 0; }
 .pill-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }

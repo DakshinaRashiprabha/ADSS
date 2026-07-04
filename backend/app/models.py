@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import Boolean, DateTime, Integer, LargeBinary, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -35,6 +35,30 @@ class SurveyResponse(Base):
 
     # Original CSV row, preserved for auditability
     raw: Mapped[dict | None] = mapped_column(JSONB)
+
+
+class SupportRequest(Base):
+    """A public support/requirement request submitted from the Comments tab.
+
+    Admins review these; approved requests are displayed publicly under
+    'Support required'.
+    """
+
+    __tablename__ = "support_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    name: Mapped[str] = mapped_column(String(128))
+    contact_no: Mapped[str] = mapped_column(String(32))
+    address: Mapped[str] = mapped_column(String(256))
+    description: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)  # pending | approved | rejected
+
+    # Optional proof document (image / PDF / any file), stored inline
+    document_name: Mapped[str | None] = mapped_column(String(256))
+    document_type: Mapped[str | None] = mapped_column(String(128))
+    document_data: Mapped[bytes | None] = mapped_column(LargeBinary)
 
 
 class IngestLog(Base):
